@@ -1,9 +1,9 @@
 name: vedic_panchanga_dart
 description: A Dart port of PyJHora for Vedic astrology panchanga calculations. Provides accurate calculations for Tithi, Nakshatra, Yoga, Karana, sunrise/sunset, and planetary positions.
 version: 0.1.0
-homepage: https://github.com/yourusername/vedic_panchanga_dart
-repository: https://github.com/yourusername/vedic_panchanga_dart
-issue_tracker: https://github.com/yourusername/vedic_panchanga_dart/issues
+homepage: https://github.com/vauppaluru-ctrl/vedic_panchanga_dart
+repository: https://github.com/vauppaluru-ctrl/vedic_panchanga_dart
+issue_tracker: https://github.com/vauppaluru-ctrl/vedic_panchanga_dart/issues
 
 environment:
   sdk: ^3.0.0
