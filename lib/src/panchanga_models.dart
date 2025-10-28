@@ -56,7 +56,7 @@ class TithiInfo {
   }
 }
 
-/// Represents Nakshatra (Lunar mansion) information
+/// Represents Nakshatra (Lunar mansion) information with comprehensive details
 class NakshatraInfo {
   final int number; // 1-27
   final String name;
@@ -66,6 +66,18 @@ class NakshatraInfo {
   final String? nextNakshatraName;
   final int? nextNakshatraPada;
   final double? nextNakshatraEnd;
+  
+  // Extended nakshatra properties
+  final String lord;
+  final String deity;
+  final String symbol;
+  final String animal;
+  final String gender;
+  final String gana;
+  final String element;
+  final String quality;
+  final List<String> physicalItems;
+  final String characteristics;
 
   NakshatraInfo({
     required this.number,
@@ -76,6 +88,16 @@ class NakshatraInfo {
     this.nextNakshatraName,
     this.nextNakshatraPada,
     this.nextNakshatraEnd,
+    required this.lord,
+    required this.deity,
+    required this.symbol,
+    required this.animal,
+    required this.gender,
+    required this.gana,
+    required this.element,
+    required this.quality,
+    required this.physicalItems,
+    required this.characteristics,
   });
 
   bool get hasTwoNakshatras => nextNakshatraName != null;

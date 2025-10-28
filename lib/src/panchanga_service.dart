@@ -17,8 +17,18 @@ class PanchangaService {
 
   /// Initialize the service with ayanamsa mode
   /// Must be called before any calculations
-  static void initialize({String ayanamsaMode = 'LAHIRI'}) {
+  static Future<void> initialize({String ayanamsaMode = 'LAHIRI'}) async {
     try {
+      // Initialize sweph with bundled ephemeris files
+      // For mobile, files are copied to app directory
+      // For web, files are loaded into memory
+      if (!_initialized) {
+        await Sweph.init(epheAssets: [
+          "packages/sweph/assets/ephe/semo_18.se1",  // moon ephemeris
+          "packages/sweph/assets/ephe/sepl_18.se1",  // planets ephemeris
+        ]);
+      }
+      
       setAyanamsaMode(ayanamsaMode);
       _initialized = true;
     } catch (e) {
@@ -90,7 +100,7 @@ class PanchangaService {
       final geoPos = GeoPosition(place.longitude, place.latitude, 0.0);
 
       final riseJd = Sweph.swe_rise_trans(
-        jdUtc - place.timezone / 24,
+        jdUtc,
         HeavenlyBody.SE_SUN,
         SwephFlag.SEFLG_SWIEPH,
         RiseSetTransitFlag.SE_CALC_RISE | RiseSetTransitFlag.SE_BIT_DISC_CENTER,
@@ -103,7 +113,11 @@ class PanchangaService {
         throw Exception('Sunrise not found (circumpolar)');
       }
 
-      final riseLocalTime = (riseJd - jdUtc) * 24 + place.timezone;
+      // Convert JD to local time: riseJd is in UTC, add timezone to get local JD
+      // Then extract hours from midnight
+      final riseJdLocal = riseJd + place.timezone / 24;
+      final riseDate = PanchangaUtils.jdToGregorian(riseJdLocal);
+      final riseLocalTime = riseDate[3] as double; // Hours since midnight
 
       return {
         'time': riseLocalTime,
@@ -130,7 +144,7 @@ class PanchangaService {
       final geoPos = GeoPosition(place.longitude, place.latitude, 0.0);
 
       final setJd = Sweph.swe_rise_trans(
-        jdUtc - place.timezone / 24,
+        jdUtc,
         HeavenlyBody.SE_SUN,
         SwephFlag.SEFLG_SWIEPH,
         RiseSetTransitFlag.SE_CALC_SET | RiseSetTransitFlag.SE_BIT_DISC_CENTER,
@@ -143,7 +157,11 @@ class PanchangaService {
         throw Exception('Sunset not found (circumpolar)');
       }
 
-      final setLocalTime = (setJd - jdUtc) * 24 + place.timezone;
+      // Convert JD to local time: setJd is in UTC, add timezone to get local JD
+      // Then extract hours from midnight
+      final setJdLocal = setJd + place.timezone / 24;
+      final setDate = PanchangaUtils.jdToGregorian(setJdLocal);
+      final setLocalTime = setDate[3] as double; // Hours since midnight
 
       return {
         'time': setLocalTime,
@@ -167,7 +185,7 @@ class PanchangaService {
       final geoPos = GeoPosition(place.longitude, place.latitude, 0.0);
 
       final riseJd = Sweph.swe_rise_trans(
-        jdUtc - place.timezone / 24,
+        jdUtc,
         HeavenlyBody.SE_MOON,
         SwephFlag.SEFLG_SWIEPH,
         RiseSetTransitFlag.SE_CALC_RISE,
@@ -180,7 +198,11 @@ class PanchangaService {
         throw Exception('Moonrise not found (circumpolar)');
       }
 
-      final riseLocalTime = (riseJd - jdUtc) * 24 + place.timezone;
+      // Convert JD to local time: riseJd is in UTC, add timezone to get local JD
+      // Then extract hours from midnight
+      final riseJdLocal = riseJd + place.timezone / 24;
+      final riseDate = PanchangaUtils.jdToGregorian(riseJdLocal);
+      final riseLocalTime = riseDate[3] as double; // Hours since midnight
 
       return {
         'time': riseLocalTime,
@@ -204,7 +226,7 @@ class PanchangaService {
       final geoPos = GeoPosition(place.longitude, place.latitude, 0.0);
 
       final setJd = Sweph.swe_rise_trans(
-        jdUtc - place.timezone / 24,
+        jdUtc,
         HeavenlyBody.SE_MOON,
         SwephFlag.SEFLG_SWIEPH,
         RiseSetTransitFlag.SE_CALC_SET,
@@ -216,7 +238,12 @@ class PanchangaService {
       if (setJd == null) {
         throw Exception('Moonset not found (circumpolar)');
       }
-      final setLocalTime = (setJd - jdUtc) * 24 + place.timezone;
+
+      // Convert JD to local time: setJd is in UTC, add timezone to get local JD
+      // Then extract hours from midnight
+      final setJdLocal = setJd + place.timezone / 24;
+      final setDate = PanchangaUtils.jdToGregorian(setJdLocal);
+      final setLocalTime = setDate[3] as double; // Hours since midnight
 
       return {
         'time': setLocalTime,
@@ -267,11 +294,8 @@ class PanchangaService {
       final sunSpeed = _dailySunSpeed(jd, place);
       final relativeSpeed = moonSpeed - sunSpeed;
 
-      final dayLen = dayLength(jd, place);
-      final nightLen = nightLength(jd, place);
-      final totalHours = dayLen + nightLen;
-
-      final endTime = jdHours + (degreesLeft / relativeSpeed) * totalHours;
+      // Calculate end time in hours from midnight (jdHours is from JD which uses noon)
+      final endTime = jdHours + (degreesLeft / relativeSpeed) * 24;
       final startTime =
           endTime - ((endTime - jdHours) / (degreesLeft / oneTithi));
 
@@ -313,7 +337,7 @@ class PanchangaService {
       final jdHours = dateInfo[3] as double;
       final jdUtc = jd - place.timezone / 24;
 
-      // Calculate current nakshatra
+      // Calculate current nakshatra  
       final moonLong = lunarLongitude(jdUtc);
       final nakData = nakshatraPada(moonLong);
       final nakNum = nakData[0] as int;
@@ -323,14 +347,20 @@ class PanchangaService {
       final degreesLeft = nakNum * oneStar - moonLong;
 
       final moonSpeed = _dailyMoonSpeed(jd, place);
+      // Calculate end time in hours from midnight
       final endTime = jdHours + (degreesLeft / moonSpeed) * 24;
 
-      // Get previous nakshatra end time
-      final prevJd = jd - 1;
-      final prevNak = nakshatra(prevJd, place);
-      final startTime = prevNak.endTime;
+      // Calculate start time based on current position and speed
+      // Instead of recursively calling nakshatra for previous day
+      final nakData0 = nakshatraPada(moonLong);
+      final remainder = nakData0[2] as double;
+      final elapsedTime = (remainder / moonSpeed) * 24;
+      final startTime = jdHours - elapsedTime;
 
       final nakName = PanchangaConstants.nakshatraNames[nakNum - 1];
+      
+      // Get detailed nakshatra information
+      final details = PanchangaConstants.nakshatraDetails[nakNum - 1];
 
       // Check if there's a second nakshatra
       if (endTime < 24.0) {
@@ -346,6 +376,16 @@ class PanchangaService {
           nextNakshatraName: nextNakName,
           nextNakshatraPada: 1,
           nextNakshatraEnd: 24.0,
+          lord: details['lord'] as String,
+          deity: details['deity'] as String,
+          symbol: details['symbol'] as String,
+          animal: details['animal'] as String,
+          gender: details['gender'] as String,
+          gana: details['gana'] as String,
+          element: details['element'] as String,
+          quality: details['quality'] as String,
+          physicalItems: List<String>.from(details['physicalItems'] as List),
+          characteristics: details['characteristics'] as String,
         );
       }
 
@@ -355,6 +395,16 @@ class PanchangaService {
         pada: padaNum,
         startTime: startTime < 0 ? 24 + startTime : startTime,
         endTime: endTime,
+        lord: details['lord'] as String,
+        deity: details['deity'] as String,
+        symbol: details['symbol'] as String,
+        animal: details['animal'] as String,
+        gender: details['gender'] as String,
+        gana: details['gana'] as String,
+        element: details['element'] as String,
+        quality: details['quality'] as String,
+        physicalItems: List<String>.from(details['physicalItems'] as List),
+        characteristics: details['characteristics'] as String,
       );
     } catch (e) {
       throw Exception('Failed to calculate nakshatra: $e');
