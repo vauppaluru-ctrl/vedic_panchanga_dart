@@ -1,0 +1,27 @@
+# Files and directories created by pub
+.dart_tool/
+.packages
+build/
+pubspec.lock
+
+# Conventional directory for build outputs
+*.js_
+*.js.deps
+*.js.map
+*.info.json
+
+# Directory created by dartdoc
+doc/api/
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Coverage
+coverage/
+
+# MacOS
+.DS_Store
