@@ -10,6 +10,8 @@ import 'panchanga_models.dart';
 import 'panchanga_constants.dart';
 import 'panchanga_utils.dart';
 
+final Sweph _sweph = Sweph();
+
 /// Main service class for panchanga calculations
 /// Design: This class handles all Vedic astronomical calculations using Swiss Ephemeris
 class PanchangaService {
@@ -19,18 +21,12 @@ class PanchangaService {
   /// Must be called before any calculations
   static Future<void> initialize({String ayanamsaMode = 'LAHIRI'}) async {
     try {
-      // Initialize sweph with bundled ephemeris files
-      // For mobile, files are copied to app directory
-      // For web, files are loaded into memory
       if (!_initialized) {
-        await Sweph.init(epheAssets: [
-          "packages/sweph/assets/ephe/semo_18.se1",  // moon ephemeris
-          "packages/sweph/assets/ephe/sepl_18.se1",  // planets ephemeris
-        ]);
+        // Initialize sweph with its bundled ephemeris files.
+        await _sweph.useDefaultEpheFiles();
+        _initialized = true;
       }
-      
       setAyanamsaMode(ayanamsaMode);
-      _initialized = true;
     } catch (e) {
       throw Exception('Failed to initialize PanchangaService: $e');
     }
@@ -41,8 +37,11 @@ class PanchangaService {
   static void setAyanamsaMode(String mode) {
     try {
       final sidMode = PanchangaConstants.ayanamsaModes[mode.toUpperCase()] ?? 1;
-      Sweph.swe_set_sid_mode(
-          SiderealMode(sidMode), SiderealModeFlag.SE_SIDBIT_NONE, 0);
+      _sweph.swe_set_sid_mode(
+        SiderealMode(sidMode),
+        SiderealModeFlag.SE_SIDBIT_NONE,
+        0,
+      );
     } catch (e) {
       throw Exception('Failed to set ayanamsa mode: $e');
     }
@@ -61,7 +60,7 @@ class PanchangaService {
           planet == PanchangaConstants.ketu ? PanchangaConstants.rahu : planet;
 
       final result =
-          Sweph.swe_calc_ut(jdUtc, HeavenlyBody(actualPlanet), flags);
+          _sweph.swe_calc_ut(jdUtc, HeavenlyBody(actualPlanet), flags);
       double longitude = result.longitude;
 
       // Ketu is 180° opposite to Rahu
@@ -99,11 +98,15 @@ class PanchangaService {
       final jdUtc = PanchangaUtils.gregorianToJd(y, m, d);
       final geoPos = GeoPosition(place.longitude, place.latitude, 0.0);
 
-      final riseJd = Sweph.swe_rise_trans(
+      final riseJd = _sweph.swe_rise_trans(
         jdUtc,
         HeavenlyBody.SE_SUN,
+        '',
         SwephFlag.SEFLG_SWIEPH,
-        RiseSetTransitFlag.SE_CALC_RISE | RiseSetTransitFlag.SE_BIT_DISC_CENTER,
+        RiseSetTransitFlag(
+          RiseSetTransitFlag.SE_CALC_RISE |
+              RiseSetTransitFlag.SE_BIT_DISC_CENTER,
+        ),
         geoPos,
         1013.25,
         15.0,
@@ -143,11 +146,15 @@ class PanchangaService {
       final jdUtc = PanchangaUtils.gregorianToJd(y, m, d);
       final geoPos = GeoPosition(place.longitude, place.latitude, 0.0);
 
-      final setJd = Sweph.swe_rise_trans(
+      final setJd = _sweph.swe_rise_trans(
         jdUtc,
         HeavenlyBody.SE_SUN,
+        '',
         SwephFlag.SEFLG_SWIEPH,
-        RiseSetTransitFlag.SE_CALC_SET | RiseSetTransitFlag.SE_BIT_DISC_CENTER,
+        RiseSetTransitFlag(
+          RiseSetTransitFlag.SE_CALC_SET |
+              RiseSetTransitFlag.SE_BIT_DISC_CENTER,
+        ),
         geoPos,
         1013.25,
         15.0,
@@ -184,11 +191,12 @@ class PanchangaService {
       final jdUtc = PanchangaUtils.gregorianToJd(y, m, d);
       final geoPos = GeoPosition(place.longitude, place.latitude, 0.0);
 
-      final riseJd = Sweph.swe_rise_trans(
+      final riseJd = _sweph.swe_rise_trans(
         jdUtc,
         HeavenlyBody.SE_MOON,
+        '',
         SwephFlag.SEFLG_SWIEPH,
-        RiseSetTransitFlag.SE_CALC_RISE,
+        RiseSetTransitFlag(RiseSetTransitFlag.SE_CALC_RISE),
         geoPos,
         1013.25,
         15.0,
@@ -225,11 +233,12 @@ class PanchangaService {
       final jdUtc = PanchangaUtils.gregorianToJd(y, m, d);
       final geoPos = GeoPosition(place.longitude, place.latitude, 0.0);
 
-      final setJd = Sweph.swe_rise_trans(
+      final setJd = _sweph.swe_rise_trans(
         jdUtc,
         HeavenlyBody.SE_MOON,
+        '',
         SwephFlag.SEFLG_SWIEPH,
-        RiseSetTransitFlag.SE_CALC_SET,
+        RiseSetTransitFlag(RiseSetTransitFlag.SE_CALC_SET),
         geoPos,
         1013.25,
         15.0,
@@ -534,7 +543,7 @@ class PanchangaService {
   /// Get weekday name
   static String weekday(double jd) {
     final dateInfo = PanchangaUtils.jdToGregorian(jd);
-    final date = DateTime(dateInfo[0], dateInfo[1], dateInfo[2]);
+    final date = DateTime(dateInfo[0] as int, dateInfo[1] as int, dateInfo[2] as int);
     return PanchangaConstants.weekdayNames[date.weekday % 7];
   }
 
@@ -548,27 +557,37 @@ class PanchangaService {
         initialize();
       }
 
-      final jd = PanchangaUtils.gregorianToJd(
+      // First calculate sunrise to use as reference time for panchanga elements
+      final jdNoon = PanchangaUtils.gregorianToJd(
         date.year,
         date.month,
         date.day,
         hour: 12,
       );
 
-      final sunriseData = sunrise(jd, place);
-      final sunsetData = sunset(jd, place);
-      final moonriseData = moonrise(jd, place);
-      final moonsetData = moonset(jd, place);
+      final sunriseData = sunrise(jdNoon, place);
+      final sunsetData = sunset(jdNoon, place);
+      final moonriseData = moonrise(jdNoon, place);
+      final moonsetData = moonset(jdNoon, place);
 
-      final tithiData = tithi(jd, place);
-      final nakshatraData = nakshatra(jd, place);
-      final yogaData = yoga(jd, place);
-      final karanaData = karana(jd, place);
-      final rasiData = moonRasi(jd, place);
+      // Calculate panchanga elements at sunrise (Vedic tradition)
+      // Convert sunrise time (hours from midnight) to JD
+      final sunriseJd = PanchangaUtils.gregorianToJd(
+        date.year,
+        date.month,
+        date.day,
+        hour: sunriseData['time'],
+      );
 
-      final dayLen = dayLength(jd, place);
-      final nightLen = nightLength(jd, place);
-      final weekdayName = weekday(jd);
+      final tithiData = tithi(sunriseJd, place);
+      final nakshatraData = nakshatra(sunriseJd, place);
+      final yogaData = yoga(sunriseJd, place);
+      final karanaData = karana(sunriseJd, place);
+      final rasiData = moonRasi(sunriseJd, place);
+
+      final dayLen = dayLength(jdNoon, place);
+      final nightLen = nightLength(jdNoon, place);
+      final weekdayName = weekday(jdNoon);
 
       return PanchangaData(
         date: date,
@@ -632,17 +651,18 @@ class PanchangaService {
         final planet = PanchangaConstants.planetList[i];
         final longitude = siderealLongitude(jdUtc, planet);
 
-        // Get detailed position info
-        final flags = SwephFlag.SEFLG_SWIEPH | SwephFlag.SEFLG_SIDEREAL;
+        // Get detailed position info including speed for retrograde detection
+        final flags = SwephFlag.SEFLG_SWIEPH | SwephFlag.SEFLG_SIDEREAL | SwephFlag.SEFLG_SPEED;
         int actualPlanet = planet == PanchangaConstants.ketu
             ? PanchangaConstants.rahu
             : planet;
 
         final result =
-            Sweph.swe_calc_ut(jdUtc, HeavenlyBody(actualPlanet), flags);
+            _sweph.swe_calc_ut(jdUtc, HeavenlyBody(actualPlanet), flags);
 
         final rasiNum = (longitude / 30).floor() + 1;
         final rasiLong = longitude % 30;
+        // Retrograde: speed in longitude < 0 means retrograde motion
         final isRetrograde = result.speedInLongitude < 0;
 
         positions.add(PlanetPosition(

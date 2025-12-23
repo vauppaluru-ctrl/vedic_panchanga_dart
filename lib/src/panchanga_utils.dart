@@ -25,18 +25,22 @@ class PanchangaUtils {
   }
 
   /// Convert decimal hours to hours, minutes, seconds
-  /// @param decimalHours: decimal hours
+  /// @param decimalHours: decimal hours (can be >= 24 for next day times)
   /// @param asString: if true, return formatted string
   /// @return: [hours, minutes, seconds] or formatted string
   static dynamic toDms(double decimalHours, {bool asString = false}) {
-    final int hours = decimalHours.floor();
-    final double minutesDecimal = (decimalHours - hours) * 60;
+    // Normalize to 24-hour format (handle times >= 24 hours)
+    final normalizedHours = decimalHours % 24;
+    final int hours = normalizedHours.floor();
+    final double minutesDecimal = (normalizedHours - hours) * 60;
     final int minutes = minutesDecimal.floor();
     final double seconds = (minutesDecimal - minutes) * 60;
 
     if (asString) {
-      final period = hours >= 12 ? 'PM' : 'AM';
-      final displayHours = hours > 12 ? hours - 12 : (hours == 0 ? 12 : hours);
+      // Determine AM/PM based on 24-hour time
+      final period = hours < 12 ? 'AM' : 'PM';
+      // Convert to 12-hour format
+      final displayHours = hours == 0 ? 12 : (hours > 12 ? hours - 12 : hours);
       return '${displayHours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.floor().toString().padLeft(2, '0')} $period';
     }
     return [hours, minutes, seconds];
@@ -46,12 +50,12 @@ class PanchangaUtils {
   /// @param year: year
   /// @param month: month (1-12)
   /// @param day: day
-  /// @param hour: hour (0-23)
+  /// @param hour: hour (0-23, can be fractional)
   /// @param minute: minute (0-59)
   /// @param second: second (0-59)
   /// @return: Julian Day Number
   static double gregorianToJd(int year, int month, int day,
-      {int hour = 12, int minute = 0, double second = 0}) {
+      {double hour = 12, int minute = 0, double second = 0}) {
     int a = (14 - month) ~/ 12;
     int y = year + 4800 - a;
     int m = month + 12 * a - 3;
@@ -186,7 +190,7 @@ class PanchangaUtils {
   /// @return: Julian Day Number
   static double julianDayNumber(List<int> dob, List<num> tob) {
     return gregorianToJd(dob[0], dob[1], dob[2],
-        hour: tob[0].toInt(),
+        hour: tob[0].toDouble(),
         minute: tob[1].toInt(),
         second: tob[2].toDouble());
   }

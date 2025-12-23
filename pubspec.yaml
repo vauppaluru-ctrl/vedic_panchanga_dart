@@ -9,7 +9,7 @@ environment:
   sdk: ^3.0.0
 
 dependencies:
-  sweph: ^2.10.3
+  sweph: 2.10.03+6
 
 dev_dependencies:
   test: ^1.24.0
