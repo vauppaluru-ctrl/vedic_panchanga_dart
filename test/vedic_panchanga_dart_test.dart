@@ -241,6 +241,74 @@ void main() {
     });
   });
 
+  group('Vimsottari Dasha', () {
+    test('returns exactly 9 dasha periods', () {
+      // Use a known birth datetime: Jan 1, 1990, noon IST, Chennai
+      final birthJd = PanchangaUtils.gregorianToJd(1990, 1, 1, hour: 12.0);
+      final dashas = PanchangaService.vimsottariDasha(birthJd, chennai);
+      expect(dashas.length, equals(9));
+    });
+
+    test('dasha periods total at most 120 tropical years', () {
+      final birthJd = PanchangaUtils.gregorianToJd(1990, 1, 1, hour: 12.0);
+      final dashas = PanchangaService.vimsottariDasha(birthJd, chennai);
+
+      final firstStart = dashas.first.startDate;
+      final lastEnd = dashas.last.endDate;
+      final totalDays = lastEnd.difference(firstStart).inDays;
+      // First dasha is shortened (birth mid-cycle), so total < 120 years
+      // Minimum is 120 - max_dasha_years (Venus=20) = 100 years
+      final maxDays = (120 * 365.242190).round() + 2;
+      final minDays = (100 * 365.242190).round();
+      expect(totalDays, lessThanOrEqualTo(maxDays));
+      expect(totalDays, greaterThanOrEqualTo(minDays));
+    });
+
+    test('consecutive dasha periods are contiguous', () {
+      final birthJd = PanchangaUtils.gregorianToJd(1990, 1, 1, hour: 12.0);
+      final dashas = PanchangaService.vimsottariDasha(birthJd, chennai);
+
+      for (int i = 0; i < dashas.length - 1; i++) {
+        expect(dashas[i].endDate, equals(dashas[i + 1].startDate));
+      }
+    });
+
+    test('first dasha start matches birth date', () {
+      final birthJd = PanchangaUtils.gregorianToJd(1990, 1, 1, hour: 12.0);
+      final dashas = PanchangaService.vimsottariDasha(birthJd, chennai);
+
+      expect(dashas.first.startDate, equals(DateTime(1990, 1, 1)));
+    });
+
+    test('all planet names are non-empty strings', () {
+      final birthJd = PanchangaUtils.gregorianToJd(1990, 1, 1, hour: 12.0);
+      final dashas = PanchangaService.vimsottariDasha(birthJd, chennai);
+
+      for (final dasha in dashas) {
+        expect(dasha.planetName, isNotEmpty);
+      }
+    });
+
+    test('DashaPeriod toString includes planet name and dates', () {
+      final birthJd = PanchangaUtils.gregorianToJd(1990, 1, 1, hour: 12.0);
+      final dashas = PanchangaService.vimsottariDasha(birthJd, chennai);
+      final str = dashas.first.toString();
+      expect(str, contains(dashas.first.planetName));
+      expect(str, contains('Dasha:'));
+    });
+
+    test('DashaPeriod toJson returns correct fields', () {
+      final birthJd = PanchangaUtils.gregorianToJd(1990, 1, 1, hour: 12.0);
+      final dashas = PanchangaService.vimsottariDasha(birthJd, chennai);
+      final json = dashas.first.toJson();
+
+      expect(json['planet'], isNotNull);
+      expect(json['planetName'], isNotEmpty);
+      expect(json['startDate'], isNotNull);
+      expect(json['endDate'], isNotNull);
+    });
+  });
+
   group('Different Ayanamsas', () {
     test('different ayanamsas give different results', () {
       final jd = PanchangaUtils.gregorianToJd(2024, 10, 28);

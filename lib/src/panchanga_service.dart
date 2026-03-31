@@ -614,6 +614,65 @@ class PanchangaService {
     }
   }
 
+  /// Calculate Vimsottari Dasha periods from a birth date
+  /// @param birthJd: Julian Day Number of the birth moment
+  /// @param birthPlace: Place of birth (used for timezone)
+  /// @return: List of 9 DashaPeriod objects covering the full 120-year cycle
+  static List<DashaPeriod> vimsottariDasha(double birthJd, Place birthPlace) {
+    try {
+      final jdUtc = birthJd - birthPlace.timezone / 24;
+      final moonLong = lunarLongitude(jdUtc);
+
+      // Determine birth nakshatra (1-27) and degrees traversed within it
+      final nakData = nakshatraPada(moonLong);
+      final nakNum = nakData[0] as int; // 1-based
+      final remainder = nakData[2] as double; // degrees traversed in nakshatra
+
+      const oneStar = 360.0 / 27;
+      final elapsedFraction = remainder / oneStar;
+
+      // Lord of the birth nakshatra: cycles through adhipatiList every 9 nakshatras
+      final dashStartIndex = (nakNum - 1) % 9;
+
+      // Convert birth JD to DateTime (date only)
+      final birthDateInfo = PanchangaUtils.jdToGregorian(birthJd);
+      final birthDate = DateTime(
+        birthDateInfo[0] as int,
+        birthDateInfo[1] as int,
+        birthDateInfo[2] as int,
+      );
+
+      final periods = <DashaPeriod>[];
+      DateTime currentDate = birthDate;
+
+      for (int i = 0; i < 9; i++) {
+        final seqIndex = (dashStartIndex + i) % 9;
+        final planet = PanchangaConstants.adhipatiList[seqIndex];
+        final totalYears =
+            PanchangaConstants.vimsottariDhasa[planet]!.toDouble();
+
+        // First dasha: only the remaining fraction; subsequent dashas: full period
+        final years = (i == 0) ? totalYears * (1.0 - elapsedFraction) : totalYears;
+
+        final days = (years * PanchangaConstants.tropicalYear).round();
+        final endDate = currentDate.add(Duration(days: days));
+
+        periods.add(DashaPeriod(
+          planet: planet,
+          planetName: PanchangaConstants.planetNames[planet],
+          startDate: currentDate,
+          endDate: endDate,
+        ));
+
+        currentDate = endDate;
+      }
+
+      return periods;
+    } catch (e) {
+      throw Exception('Failed to calculate vimsottari dasha: $e');
+    }
+  }
+
   /// Helper: Calculate daily moon speed
   static double _dailyMoonSpeed(double jd, Place place) {
     final jdUtc = jd - place.timezone / 24;

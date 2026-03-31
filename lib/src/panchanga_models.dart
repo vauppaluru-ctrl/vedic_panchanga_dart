@@ -323,6 +323,37 @@ Moonset: $moonsetString
   }
 }
 
+/// Represents a single Vimsottari Dasha period
+class DashaPeriod {
+  final int planet; // Index into PanchangaConstants.planetList
+  final String planetName;
+  final DateTime startDate;
+  final DateTime endDate;
+
+  DashaPeriod({
+    required this.planet,
+    required this.planetName,
+    required this.startDate,
+    required this.endDate,
+  });
+
+  @override
+  String toString() {
+    final start = startDate.toString().split(' ')[0];
+    final end = endDate.toString().split(' ')[0];
+    return 'Dasha: $planetName ($start - $end)';
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'planet': planet,
+      'planetName': planetName,
+      'startDate': startDate.toIso8601String(),
+      'endDate': endDate.toIso8601String(),
+    };
+  }
+}
+
 /// Planet position information
 class PlanetPosition {
   final int planet;
