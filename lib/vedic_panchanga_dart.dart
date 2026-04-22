@@ -36,3 +36,8 @@ export 'src/panchanga_constants.dart';
 export 'src/panchanga_models.dart';
 export 'src/panchanga_service.dart';
 export 'src/panchanga_utils.dart';
+
+// Compatibility module
+export 'src/compatibility/compatibility_constants.dart';
+export 'src/compatibility/compatibility_models.dart';
+export 'src/compatibility/ashtakoota.dart';

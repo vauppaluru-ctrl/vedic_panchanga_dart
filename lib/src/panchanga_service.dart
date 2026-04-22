@@ -19,11 +19,26 @@ class PanchangaService {
 
   /// Initialize the service with ayanamsa mode
   /// Must be called before any calculations
-  static Future<void> initialize({String ayanamsaMode = 'LAHIRI'}) async {
+  ///
+  /// [ephePath] — optional override for the ephemeris file directory.
+  /// Pass an empty string (or any non-null value) to skip the path_provider
+  /// call and use Swiss Ephemeris's built-in Moshier fallback instead.
+  /// Useful in unit-test environments where Flutter plugins are unavailable.
+  static Future<void> initialize({
+    String ayanamsaMode = 'LAHIRI',
+    String? ephePath,
+  }) async {
     try {
       if (!_initialized) {
-        // Initialize sweph with its bundled ephemeris files.
-        await _sweph.useDefaultEpheFiles();
+        if (ephePath != null) {
+          // Caller supplied a path (or empty string) — skip path_provider.
+          // Passing an empty string lets SE fall back to its built-in Moshier
+          // ephemeris, which is accurate enough for unit-test verification.
+          _sweph.swe_set_ephe_path(ephePath.isEmpty ? null : ephePath);
+        } else {
+          // Default: extract bundled ephe files via path_provider (production).
+          await _sweph.useDefaultEpheFiles();
+        }
         _initialized = true;
       }
       setAyanamsaMode(ayanamsaMode);
@@ -40,7 +55,8 @@ class PanchangaService {
       _sweph.swe_set_sid_mode(
         SiderealMode(sidMode),
         SiderealModeFlag.SE_SIDBIT_NONE,
-        0,
+        0.0,
+        0.0,
       );
     } catch (e) {
       throw Exception('Failed to set ayanamsa mode: $e');
@@ -95,7 +111,12 @@ class PanchangaService {
       final m = dateInfo[1] as int;
       final d = dateInfo[2] as int;
 
-      final jdUtc = PanchangaUtils.gregorianToJd(y, m, d);
+      // Start the search from midnight UTC of the local date — not noon UTC.
+      // Noon UTC is already past sunrise for UTC− locations (e.g. US, CDT=UTC−5:
+      // noon UTC = 7 AM local, which is after a 6:30 AM sunrise), so swe_rise_trans
+      // would skip today and return tomorrow's sunrise. Midnight UTC is always
+      // before local sunrise for any inhabited timezone, matching PyJHora's approach.
+      final jdUtc = PanchangaUtils.gregorianToJd(y, m, d, hour: 0);
       final geoPos = GeoPosition(place.longitude, place.latitude, 0.0);
 
       final riseJd = _sweph.swe_rise_trans(
@@ -296,15 +317,29 @@ class PanchangaService {
 
       const oneTithi = 360.0 / 30;
       final tithiNum = (tithiPhase / oneTithi).ceil();
-      final degreesLeft = tithiNum * oneTithi - tithiPhase;
+      final boundary = tithiNum * oneTithi;
+      final degreesLeft = boundary - tithiPhase;
 
       // Calculate moon and sun speeds
       final moonSpeed = _dailyMoonSpeed(jd, place);
       final sunSpeed = _dailySunSpeed(jd, place);
       final relativeSpeed = moonSpeed - sunSpeed;
 
-      // Calculate end time in hours from midnight (jdHours is from JD which uses noon)
-      final endTime = jdHours + (degreesLeft / relativeSpeed) * 24;
+      // Iterative refinement for accurate end time (same approach as nakshatra).
+      // Linear extrapolation over a full tithi (~24h) can drift by 1-2h because
+      // moon speed varies; a few Newton steps converge to sub-minute accuracy.
+      double endJdUtc = jdUtc + degreesLeft / relativeSpeed;
+      for (int i = 0; i < 4; i++) {
+        final mL = lunarLongitude(endJdUtc);
+        final sL = solarLongitude(endJdUtc);
+        final phase = (mL - sL) % 360;
+        final delta = boundary - phase;
+        if (delta.abs() < 0.0001) break;
+        final mSpeed = _dailyMoonSpeed(endJdUtc + place.timezone / 24, place);
+        final sSpeed = _dailySunSpeed(endJdUtc + place.timezone / 24, place);
+        endJdUtc += delta / (mSpeed - sSpeed);
+      }
+      final endTime = jdHours + (endJdUtc - jdUtc) * 24;
       final startTime =
           endTime - ((endTime - jdHours) / (degreesLeft / oneTithi));
 
@@ -353,14 +388,30 @@ class PanchangaService {
       final padaNum = nakData[1] as int;
 
       const oneStar = 360.0 / 27;
-      final degreesLeft = nakNum * oneStar - moonLong;
+      final boundary = nakNum * oneStar;
+      final degreesLeft = boundary - moonLong;
 
       final moonSpeed = _dailyMoonSpeed(jd, place);
-      // Calculate end time in hours from midnight
-      final endTime = jdHours + (degreesLeft / moonSpeed) * 24;
 
-      // Calculate start time based on current position and speed
-      // Instead of recursively calling nakshatra for previous day
+      // Iterative refinement (Newton's method) for accurate end time.
+      // Linear extrapolation over ~24h can be off by 1-2h because the moon's
+      // speed varies through its elliptical orbit. A few iterations converge
+      // to sub-minute accuracy by re-evaluating speed at the new estimate.
+      double endJdUtc = jdUtc + degreesLeft / moonSpeed;
+      for (int i = 0; i < 4; i++) {
+        final longAtEstimate = lunarLongitude(endJdUtc);
+        final delta = boundary - longAtEstimate;
+        if (delta.abs() < 0.0001) break; // ~30 arc-seconds, well under a minute
+        final speedAtEstimate = _dailyMoonSpeed(
+          endJdUtc + place.timezone / 24, // convert back to local JD for helper
+          place,
+        );
+        endJdUtc += delta / speedAtEstimate;
+      }
+      final endTime = jdHours + (endJdUtc - jdUtc) * 24;
+
+      // Start time: linear approximation from elapsed degrees (display only,
+      // precise start accuracy is less critical than end time).
       final nakData0 = nakshatraPada(moonLong);
       final remainder = nakData0[2] as double;
       final elapsedTime = (remainder / moonSpeed) * 24;
@@ -429,23 +480,39 @@ class PanchangaService {
       final dateInfo = PanchangaUtils.jdToGregorian(jd);
       final jdHours = dateInfo[3] as double;
 
-      final sunriseData = sunrise(jd, place);
-      final sunriseJd = sunriseData['jd'] as double;
+      // jdUtc: actual UTC moment corresponding to the local JD passed in.
+      // Do NOT call sunrise() here — jd is already the local sunrise JD, so
+      // jd - timezone/24 gives the correct UTC sunrise directly. The previous
+      // approach (sunriseData['jd'] - timezone/24) double-shifted for UTC− zones.
+      final jdUtc = jd - place.timezone / 24;
 
       // Yoga = (Moon longitude + Sun longitude) / 13.333...
-      final moonLong = lunarLongitude(sunriseJd - place.timezone / 24);
-      final sunLong = solarLongitude(sunriseJd - place.timezone / 24);
+      final moonLong = lunarLongitude(jdUtc);
+      final sunLong = solarLongitude(jdUtc);
       final total = (moonLong + sunLong) % 360;
 
       const oneYoga = 360.0 / 27;
       final yogaNum = (total / oneYoga).ceil();
-      final degreesLeft = yogaNum * oneYoga - total;
+      final yogaBoundary = yogaNum * oneYoga;
+      final degreesLeft = yogaBoundary - total;
 
       final moonSpeed = _dailyMoonSpeed(jd, place);
       final sunSpeed = _dailySunSpeed(jd, place);
       final totalSpeed = moonSpeed + sunSpeed;
 
-      final endTime = jdHours + (degreesLeft / totalSpeed) * 24;
+      // Iterative refinement for accurate end time.
+      double endJdUtc = jdUtc + degreesLeft / totalSpeed;
+      for (int i = 0; i < 4; i++) {
+        final mL = lunarLongitude(endJdUtc);
+        final sL = solarLongitude(endJdUtc);
+        final t = (mL + sL) % 360;
+        final delta = yogaBoundary - t;
+        if (delta.abs() < 0.0001) break;
+        final mSpeed = _dailyMoonSpeed(endJdUtc + place.timezone / 24, place);
+        final sSpeed = _dailySunSpeed(endJdUtc + place.timezone / 24, place);
+        endJdUtc += delta / (mSpeed + sSpeed);
+      }
+      final endTime = jdHours + (endJdUtc - jdUtc) * 24;
 
       final yogaName = PanchangaConstants.yogaNames[yogaNum - 1];
 
@@ -570,8 +637,11 @@ class PanchangaService {
       final moonriseData = moonrise(jdNoon, place);
       final moonsetData = moonset(jdNoon, place);
 
-      // Calculate panchanga elements at sunrise (Vedic tradition)
-      // Convert sunrise time (hours from midnight) to JD
+      // Calculate panchanga elements at sunrise (Vedic tradition).
+      // nakshatra() and other calculation functions use a "local JD" convention:
+      // they expect jd to carry local-time hours, and internally convert to UTC
+      // via `jd - timezone/24`. Rebuild the JD from the local sunrise hour so
+      // the convention is satisfied and endTime is returned in local hours.
       final sunriseJd = PanchangaUtils.gregorianToJd(
         date.year,
         date.month,
