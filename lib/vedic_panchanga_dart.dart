@@ -36,6 +36,7 @@ export 'src/panchanga_constants.dart';
 export 'src/panchanga_models.dart';
 export 'src/panchanga_service.dart';
 export 'src/panchanga_utils.dart';
+export 'src/sign_boundary_scanner.dart';
 
 // Compatibility module
 export 'src/compatibility/compatibility_constants.dart';
